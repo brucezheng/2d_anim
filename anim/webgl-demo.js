@@ -2,6 +2,8 @@ var cubeRotation = 0.0;
 const projectionMatrix = mat4.create();
 const viewMatrix = mat4.create();
 
+const rotCtrlLen = 0.9;
+
 var mouseDown = false;
 var lastMouseX = null;
 var lastMouseY = null;
@@ -16,10 +18,9 @@ var canvas;
 var pointScale = 0.075;
 var pointDelt = 0.001;
 
-var centers = [ [2.0, 0.0] ];
-var states = [ 0 ];
-var textures = [];
-var selected = -1;
+var centers = [ {texture : null, x : 2.0, y: 0.0, state : 0 } ];
+var rot = [ { theta: 0.0, x: 2.0 + rotCtrlLen, y: 0.0, state: 0 } ];
+var selected = { index : -1, list : "" };
 
 const fieldOfView = 45 * Math.PI / 180;   // in radians
 var aspect;
@@ -28,13 +29,11 @@ const zNear = 0.1;
 const zFar = 100.0;
 	
 main();
-//
-// Start here
-//
+
 function main() {
-  canvas = document.querySelector('#glcanvas');
-  const gl = canvas.getContext('webgl');
-  aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+	canvas = document.querySelector('#glcanvas');
+	const gl = canvas.getContext('webgl');
+	aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
 	canvas.onmousedown = handleMouseDown;
 	document.onmouseup = handleMouseUp;
 	document.onmousemove = handleMouseMove;
@@ -46,10 +45,6 @@ function main() {
     return;
   }
   
-  //console.log((2.0 / pointScale + pointDelt));
-
-  // Vertex shader program
-
   const vsSource = `
     attribute vec4 aVertexPosition;
     attribute vec2 aTextureCoord;
@@ -122,7 +117,7 @@ function main() {
   const buffers = initBuffers(gl);
   const texture = loadTexture(gl, 'https://i.imgur.com/gpsVFuq.png');
 
-  textures.push(texture);
+  centers[0].texture = texture;
   
   initMatrix(gl);
   var then = 0;
@@ -184,45 +179,80 @@ function handleMouseMove(event) {
 	var plane = calculateTrueXY();
 	planeX = plane.x;
 	planeY = -plane.y;
-	//console.log(planeX, planeY);
-	
-	//var deltaX = mouseX - lastMouseX;
-	//var deltaY = mouseY - lastMouseY;
 	
 	if (mouseDown) {
 		var deltaX = planeX - lastPlaneX;
 		var deltaY = planeY - lastPlaneY;
 	
-		console.log(deltaX, deltaY);
+		//console.log(deltaX, deltaY);
 		
-		if(selected > -1) {
-			centers[selected][0] += deltaX;
-			centers[selected][1] += deltaY;
+		if(selected.index > -1) {
+			window[selected.list][selected.index].x += deltaX;
+			window[selected.list][selected.index].y += deltaY;
+			updateControl();
 		}
 	} else {
 		updateMouseOver();
 	}
 	
-	//lastMouseX = mouseX;
-	//lastMouseY = mouseY;
 	lastPlaneX = planeX;
 	lastPlaneY = planeY;
 }
 
+function updateControl() {
+	var i = selected.index;
+	if (selected.list == "centers") {
+		rot[i].x = centers[i].x + Math.cos(rot[i].theta) * rotCtrlLen;
+		rot[i].y = centers[i].y + Math.sin(rot[i].theta) * rotCtrlLen;
+	} else {
+		var dX = rot[i].x - centers[i].x;
+		var dY = rot[i].y - centers[i].y;
+		
+		var len = dX * dX + dY * dY;
+		len = Math.sqrt(len);
+		
+		rot[i].x = centers[i].x + dX / len * rotCtrlLen;
+		rot[i].y = centers[i].y + dY / len * rotCtrlLen;
+		
+		if (dX == 0.0) {
+			if (dY > 0) {
+				rot[i].theta = 3.14159 / 2;
+			} else {
+				rot[i].theta = -3.14159 / 2 	;
+			}
+		} else {
+			rot[i].theta = Math.atan(dY / dX);
+			if (dX < 0)
+				rot[i].theta += 3.1415;
+		}
+	}
+}
+
 function updateMouseOver() {
 	var i;
-	var cLen = centers.length;
 	var fudge = 1.1;
-	selected = -1;
-	for (i = 0; i < cLen; i++) {
-		//console.log(Math.abs(centers[i][0] - planeX), Math.abs(centers[i][1] - planeY));
-		if (Math.abs(centers[i][0] - planeX) < pointScale * fudge && 
-			Math.abs(centers[i][1] - planeY) < pointScale * fudge) {
-			states[i] = 1;
-			selected = i;
+	selected.index = -1;
+	selected.list = "";
+	for (i = 0; i < centers.length; i++) {
+		if (Math.abs(centers[i].x - planeX) < pointScale * fudge && 
+			Math.abs(centers[i].y - planeY) < pointScale * fudge) {
+			centers[i].state =  1;
+			selected.index = i;
+			selected.list = "centers";
 		}
 		else
-			states[i] = 0;
+			centers[i].state = 0;
+	}
+	
+	for (i = 0; i < rot.length; i++) {
+		if (Math.abs(rot[i].x - planeX) < pointScale * fudge && 
+			Math.abs(rot[i].y - planeY) < pointScale * fudge) {
+			rot[i].state =  1;
+			selected.index = i;
+			selected.list = "rot";
+		}
+		else
+			rot[i].state = 0;
 	}
 }
   
@@ -246,9 +276,6 @@ function initMatrix(gl) {
 //
 // initBuffers
 //
-// Initialize the buffers we'll need. For this demo, we just
-// have one object -- a simple three-dimensional cube.
-//
 function initBuffers(gl) {
 
   // Create a buffer for the cube's vertex positions.
@@ -269,10 +296,6 @@ function initBuffers(gl) {
      1.0,  1.0,  0.0,
     -1.0,  1.0,  0.0,
   ];
-
-  // Now pass the list of positions into WebGL to build the
-  // shape. We do this by creating a Float32Array from the
-  // JavaScript array, then use it to fill the current buffer.
 
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
 
@@ -326,11 +349,6 @@ function loadTexture(gl, url) {
   const texture = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, texture);
 
-  // Because images have to be download over the internet
-  // they might take a moment until they are ready.
-  // Until then put a single pixel in the texture so we can
-  // use it immediately. When the image has finished downloading
-  // we'll update the texture with the contents of the image.
   const level = 0;
   const internalFormat = gl.RGBA;
   const width = 1;
@@ -420,29 +438,55 @@ function drawSceneBox(gl, programInfo, buffers) {
       false,
 	  viewMatrix);
 	
+  
+	  
+  // draw centers
   var uColor;
-  if (states[0] == 0)
+  if (centers[0].state == 0)
 	uColor = [0.0, 0.0, 1.0, 1.0];
   else
     uColor = [0.0, 1.0, 0.0, 1.0];
   gl.uniform4fv(
       programInfo.uniformLocations.uColor,
       uColor);
-	
-  const modelMatrix = mat4.create();
-  var modelX = centers[0][0];
-  var modelY = centers[0][1];
+  var modelMatrix = mat4.create();
+  var modelX = centers[0].x;
+  var modelY = centers[0].y;
   mat4.translate(modelMatrix,
 				 modelMatrix,
 				 [modelX,modelY,0.01]);
   mat4.scale(modelMatrix,
 			 modelMatrix,
 			 [pointScale, pointScale, pointScale]);
-  /*
+  gl.uniformMatrix4fv(
+      programInfo.uniformLocations.modelMatrix,
+      false,
+      modelMatrix);
+  {
+    const vertexCount = 6;
+    const type = gl.UNSIGNED_SHORT;
+    const offset = 0;
+    gl.drawElements(gl.TRIANGLES, vertexCount, type, offset);
+  }
+  
+
+  var uColor;
+  if (rot[0].state == 0)
+	uColor = [1.0, 0.0, 1.0, 1.0];
+  else
+    uColor = [0.0, 1.0, 0.0, 1.0];
+  gl.uniform4fv(
+      programInfo.uniformLocations.uColor,
+      uColor);
+  var modelMatrix = mat4.create();
+  var modelX = rot[0].x;
+  var modelY = rot[0].y;
   mat4.translate(modelMatrix,
 				 modelMatrix,
-				 [0.0,0.0,(2.0 / pointScale + pointDelt)]);
-  */
+				 [modelX,modelY,0.01]);
+  mat4.scale(modelMatrix,
+			 modelMatrix,
+			 [pointScale, pointScale, pointScale]);
   gl.uniformMatrix4fv(
       programInfo.uniformLocations.modelMatrix,
       false,
@@ -507,8 +551,8 @@ function drawSceneTexture(gl, programInfo, buffers) {
       viewMatrix);
 
   const modelMatrix = mat4.create();
-  var modelX = centers[0][0];
-  var modelY = centers[0][1];
+  var modelX = centers[0].x;
+  var modelY = centers[0].y;
   mat4.translate(modelMatrix,
 				 modelMatrix,
 				 [modelX,modelY,0.0]);
@@ -516,13 +560,17 @@ function drawSceneTexture(gl, programInfo, buffers) {
               modelMatrix,  // matrix to rotate
               3.14159,     // amount to rotate in radians
               [0, 0, 1]);       // axis to rotate around (Z)
+  mat4.rotate(modelMatrix,  // destination matrix
+              modelMatrix,  // matrix to rotate
+              rot[0].theta,     // amount to rotate in radians
+              [0, 0, 1]);       // axis to rotate around (Z)
 
   gl.uniformMatrix4fv(
       programInfo.uniformLocations.modelMatrix,
       false,
       modelMatrix);
 	  
-  var texture = textures[0];
+  var texture = centers[0].texture;
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.uniform1i(programInfo.uniformLocations.uSampler, 0);
