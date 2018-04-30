@@ -1,23 +1,29 @@
 var cubeRotation = 0.0;
 const projectionMatrix = mat4.create();
+const viewMatrix = mat4.create();
+
 var mouseDown = false;
 var lastMouseX = null;
 var lastMouseY = null;
 var mouseX = null;
 var mouseY = null;
-var planeX;
-var planeY;
+var lastPlaneX = null;
+var lastPlaneY = null;
+var planeX = null;
+var planeY = null;
 var canvas;
 
-var pointScale = 0.025;
+var pointScale = 0.075;
 var pointDelt = 0.001;
 
-var centers = [ [0.0, 0.0] ];
-var cenSel = [ false ];
+var centers = [ [2.0, 0.0] ];
+var states = [ 0 ];
 var textures = [];
+var selected = -1;
 
 const fieldOfView = 45 * Math.PI / 180;   // in radians
-const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+var aspect;
+const cameradist = 8.0;
 const zNear = 0.1;
 const zFar = 100.0;
 	
@@ -28,7 +34,7 @@ main();
 function main() {
   canvas = document.querySelector('#glcanvas');
   const gl = canvas.getContext('webgl');
-  
+  aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
 	canvas.onmousedown = handleMouseDown;
 	document.onmouseup = handleMouseUp;
 	document.onmousemove = handleMouseMove;
@@ -39,6 +45,8 @@ function main() {
     alert('Unable to initialize WebGL. Your browser or machine may not support it.');
     return;
   }
+  
+  //console.log((2.0 / pointScale + pointDelt));
 
   // Vertex shader program
 
@@ -116,7 +124,7 @@ function main() {
 
   textures.push(texture);
   
-  initPerspectiveMatrix(gl);
+  initMatrix(gl);
   var then = 0;
   // Draw the scene repeatedly
   function render() {
@@ -150,7 +158,12 @@ function calculateTrueXY() {
 	var angY = fieldOfView * mouseY / height;
 	var angX = aspect * fieldOfView * mouseX / width;
 	
+	//console.log(Math.sin(angX),Math.sin(angY));
 	
+	return {
+		x : Math.sin(angX) * cameradist * 1.085,
+		y : Math.sin(angY) * cameradist * 1.085,
+	};
 }
 
 function handleMouseMove(event) {
@@ -167,23 +180,49 @@ function handleMouseMove(event) {
 	
 	mouseX = mouseX - (width / 2);
 	mouseY = mouseY - (height / 2);
-	calculateTrueXY();
 	
-	var deltaX = mouseX - lastMouseX;
-	var deltaY = mouseY - lastMouseY;
+	var plane = calculateTrueXY();
+	planeX = plane.x;
+	planeY = -plane.y;
+	//console.log(planeX, planeY);
 	
-	console.log(mouseX,mouseY);
-	//console.log(deltaX, deltaY);
-
-	lastMouseX = mouseX;
-	lastMouseY = mouseY;
+	//var deltaX = mouseX - lastMouseX;
+	//var deltaY = mouseY - lastMouseY;
+	
+	if (mouseDown) {
+		var deltaX = planeX - lastPlaneX;
+		var deltaY = planeY - lastPlaneY;
+	
+		console.log(deltaX, deltaY);
+		
+		if(selected > -1) {
+			centers[selected][0] += deltaX;
+			centers[selected][1] += deltaY;
+		}
+	} else {
+		updateMouseOver();
+	}
+	
+	//lastMouseX = mouseX;
+	//lastMouseY = mouseY;
+	lastPlaneX = planeX;
+	lastPlaneY = planeY;
 }
 
-function updateSel() {
+function updateMouseOver() {
 	var i;
-	var cLen = centers.length();
+	var cLen = centers.length;
+	var fudge = 1.1;
+	selected = -1;
 	for (i = 0; i < cLen; i++) {
-		
+		//console.log(Math.abs(centers[i][0] - planeX), Math.abs(centers[i][1] - planeY));
+		if (Math.abs(centers[i][0] - planeX) < pointScale * fudge && 
+			Math.abs(centers[i][1] - planeY) < pointScale * fudge) {
+			states[i] = 1;
+			selected = i;
+		}
+		else
+			states[i] = 0;
 	}
 }
   
@@ -193,12 +232,15 @@ function requestCORSIfNotSameOrigin(img, url) {
   }
 }
 
-function initPerspectiveMatrix(gl) {	
+function initMatrix(gl) {	
 	mat4.perspective(projectionMatrix,
 				   fieldOfView,
 				   aspect,
 				   zNear,
 				   zFar);
+	mat4.translate(viewMatrix,     // destination matrix
+				 viewMatrix,     // matrix to translate
+				 [-0.0, 0.0, -cameradist]);
 }
 
 //
@@ -222,10 +264,10 @@ function initBuffers(gl) {
 
   const positions = [
     // Front face
-    -1.0, -1.0,  1.0,
-     1.0, -1.0,  1.0,
-     1.0,  1.0,  1.0,
-    -1.0,  1.0,  1.0,
+    -1.0, -1.0,  0.0,
+     1.0, -1.0,  0.0,
+     1.0,  1.0,  0.0,
+    -1.0,  1.0,  0.0,
   ];
 
   // Now pass the list of positions into WebGL to build the
@@ -345,19 +387,7 @@ function drawNewFrame(gl) {
 }
 
 function drawSceneBox(gl, programInfo, buffers) {
-  const modelMatrix = mat4.create();
-  const viewMatrix = mat4.create();
 
-  // Now move the drawing position a bit to where we want to
-  // start drawing the square.
-
-  mat4.translate(viewMatrix,     // destination matrix
-                 viewMatrix,     // matrix to translate
-                 [-0.0, 0.0, -6.0]);  // amount to translate
-				 
-				 
-  // Tell WebGL how to pull out the positions from the position
-  // buffer into the vertexPosition attribute
   {
     const numComponents = 3;
     const type = gl.FLOAT;
@@ -389,19 +419,30 @@ function drawSceneBox(gl, programInfo, buffers) {
       programInfo.uniformLocations.viewMatrix,
       false,
 	  viewMatrix);
-	  
-  var uColor = [0.0, 0.0, 1.0, 1.0];
-  
+	
+  var uColor;
+  if (states[0] == 0)
+	uColor = [0.0, 0.0, 1.0, 1.0];
+  else
+    uColor = [0.0, 1.0, 0.0, 1.0];
   gl.uniform4fv(
       programInfo.uniformLocations.uColor,
       uColor);
-	 
+	
+  const modelMatrix = mat4.create();
+  var modelX = centers[0][0];
+  var modelY = centers[0][1];
+  mat4.translate(modelMatrix,
+				 modelMatrix,
+				 [modelX,modelY,0.01]);
   mat4.scale(modelMatrix,
 			 modelMatrix,
 			 [pointScale, pointScale, pointScale]);
+  /*
   mat4.translate(modelMatrix,
 				 modelMatrix,
 				 [0.0,0.0,(2.0 / pointScale + pointDelt)]);
+  */
   gl.uniformMatrix4fv(
       programInfo.uniformLocations.modelMatrix,
       false,
@@ -415,23 +456,7 @@ function drawSceneBox(gl, programInfo, buffers) {
 }
 
 function drawSceneTexture(gl, programInfo, buffers) {
-
-  // Set the drawing position to the "identity" point, which is
-  // the center of the scene.
-  const modelViewMatrix = mat4.create();
-
-  // Now move the drawing position a bit to where we want to
-  // start drawing the square.
-
-  const modelMatrix = mat4.create();
-  const viewMatrix = mat4.create();
-
-  mat4.translate(viewMatrix,     // destination matrix
-                 viewMatrix,     // matrix to translate
-                 [-0.0, 0.0, -6.0]);
-
-  // Now move the drawing position a bit to where we want to
-  // start drawing the square.
+  
   {
     const numComponents = 3;
     const type = gl.FLOAT;
@@ -481,6 +506,12 @@ function drawSceneTexture(gl, programInfo, buffers) {
       false,
       viewMatrix);
 
+  const modelMatrix = mat4.create();
+  var modelX = centers[0][0];
+  var modelY = centers[0][1];
+  mat4.translate(modelMatrix,
+				 modelMatrix,
+				 [modelX,modelY,0.0]);
   mat4.rotate(modelMatrix,  // destination matrix
               modelMatrix,  // matrix to rotate
               3.14159,     // amount to rotate in radians
