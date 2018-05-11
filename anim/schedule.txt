@@ -1,0 +1,31 @@
+0 								- 3:52
+1 basic playing 			    - 4:06
+2 timeline display				- 4:30
+3 keyframes on timeline			- 4:43
+4 cursor on timeline			- 6:55
+5 selecting and dragging		- 8:35
+	- mouseover			  - 7:53
+	- selecting			  - 7:53
+	- moving			  - 8:35
+6 deletion						- 8:46
+7 adding arbitrary keyframes	- 11:10
+8 updating keyframe				- 10:42
+9 control points				- 
+	- get drawn			  - 12:41
+	- cage				  - 
+10 update texture				- 11:54
+11 drawing lines				-
+	- rotation			  - 13:16
+	- cage
+12 understand box deformation	- 11:54
+13 implement box deformation
+	- feed control points
+	- feed control disp
+	- calc dist
+	- calc disp
+14 make look nice				
+15 report
+	- page 0.5
+	- page 1.0
+	- page 1.5
+	- page 2.0
